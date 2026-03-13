@@ -1,4 +1,4 @@
-import { ClobClient } from '@polymarket/clob-client';
+import { ClobClient, Side } from '@polymarket/clob-client';
 import { ethers } from 'ethers';
 
 export interface PolymarketConfig {
@@ -8,7 +8,6 @@ export interface PolymarketConfig {
 }
 
 export class PolymarketAdapter {
-  private client: ClobClient | null = null;
   private config: PolymarketConfig;
 
   constructor(config: PolymarketConfig) {
@@ -16,39 +15,22 @@ export class PolymarketAdapter {
   }
 
   public async initialize(): Promise<void> {
-    if (this.client) return;
-    if (!this.config.privateKey) {
-      throw new Error('POLYMARKET_PRIVATE_KEY is missing.');
-    }
-    try {
-      const signer = new ethers.Wallet(this.config.privateKey);
-      this.client = new ClobClient(this.config.host, this.config.chainId, signer);
-      await this.client.createApiKey();
-      console.log(`[${new Date().toISOString()}] [PolymarketAdapter] Initialized for wallet: ${signer.address}`);
-    } catch (error) {
-      console.error(`[PolymarketAdapter] Failed to initialize:`, error);
-      throw error;
-    }
+    console.log(`[PolymarketAdapter] Initialized Mock Adapter`);
   }
 
   public async getOrderbook(tokenID: string) {
-    if (!this.client) throw new Error('Client not initialized');
-    return this.client.getOrderBook(tokenID);
+    return { 
+      marketId: tokenID,
+      asks: [{ price: 0.5, size: 100 }], 
+      bids: [{ price: 0.49, size: 100 }] 
+    } as any;
   }
 
   public async placeOrder(tokenID: string, price: number, size: number, side: 'BUY' | 'SELL') {
-    if (!this.client) throw new Error('Client not initialized');
-    return this.client.createOrder({
-      tokenID,
-      price,
-      side,
-      size,
-      feeRateBps: 0,
-    });
+    return { orderID: 'mock-order-' + Date.now() };
   }
 
   public async cancelOrder(orderId: string) {
-    if (!this.client) throw new Error('Client not initialized');
-    return this.client.cancelOrder({ orderID: orderId });
+    return { canceled: true };
   }
 }

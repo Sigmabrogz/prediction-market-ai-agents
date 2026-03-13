@@ -35,7 +35,7 @@ export class ExecutionEngine {
       });
 
       const orderbook = await this.adapter.getOrderbook(strategy.marketId);
-      const validation = this.validator.validate(orderbook, strategy, side);
+      const validation = this.validator.validate({ ...orderbook, marketId: strategy.marketId } as any, strategy, side);
 
       if (!validation.passed) {
         await LifecycleEventPublisher.publish({
@@ -43,7 +43,7 @@ export class ExecutionEngine {
           eventType: LifecycleEventType.VALIDATION_FAILED,
           payload: { reason: validation.reason }
         });
-        return { success: false, error: validation.reason, executionTimeMs: Date.now() - startTime };
+        return { success: false, error: validation.reason as string, executionTimeMs: Date.now() - startTime };
       }
 
       await LifecycleEventPublisher.publish({
@@ -52,7 +52,7 @@ export class ExecutionEngine {
         payload: {}
       });
 
-      const execPrice = side === 'BUY' ? orderbook.asks[0].price : orderbook.bids[0].price;
+      const execPrice = side === 'BUY' ? Number(orderbook.asks[0].price) : Number(orderbook.bids[0].price);
 
       if (dryRun) {
         await LifecycleEventPublisher.publish({
@@ -75,13 +75,13 @@ export class ExecutionEngine {
       await LifecycleEventPublisher.publish({
         ...eventBase,
         eventType: LifecycleEventType.ORDER_SUBMITTED,
-        orderId: order.orderID,
+        orderId: String(String(order.orderID)),
         payload: { limitPrice: execPrice, size: strategy.maxPositionSizeUsdc, side }
       });
 
-      this.monitorAndCancelOrder(order.orderID, eventBase);
+      this.monitorAndCancelOrder(String(String(order.orderID)), eventBase);
 
-      return { success: true, orderId: order.orderID, executionTimeMs: Date.now() - startTime };
+      return { success: true, orderId: String(String(order.orderID)) as string, executionTimeMs: Date.now() - startTime };
 
     } catch (error) {
       const errMessage = error instanceof Error ? error.message : String(error);

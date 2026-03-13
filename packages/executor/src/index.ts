@@ -21,10 +21,14 @@ if (!DRY_RUN) {
   if (!LIVE_CONFIRMATION) {
     console.error(`[${new Date().toISOString()}] [Executor] FATAL: LIVE_CONFIRMATION=true is required to disable DRY_RUN. Aborting.`);
     process.exit(1);
+  } else {
+    console.log(`[Executor] Subscribed to ${REDIS_CHANNEL}`);
   }
   if (!process.env.POLYMARKET_PRIVATE_KEY) {
     console.error(`[${new Date().toISOString()}] [Executor] FATAL: POLYMARKET_PRIVATE_KEY missing in LIVE mode. Aborting.`);
     process.exit(1);
+  } else {
+    console.log(`[Executor] Subscribed to ${REDIS_CHANNEL}`);
   }
 }
 
@@ -49,8 +53,10 @@ const mockStrategy: StrategyConfig = {
 
 sub.subscribe(REDIS_CHANNEL, (err) => {
   if (err) {
-    console.error(`[${new Date().toISOString()}] [Executor] Redis Subscription Error:`, err.message);
+    console.error(`Error:`, err);
     process.exit(1);
+  } else {
+    console.log(`[Executor] Subscribed to ${REDIS_CHANNEL}`);
   }
 });
 
