@@ -1,4 +1,5 @@
 import { OracleSignal } from '../../core/src/types';
+import { publishSignal } from '../../core/src/redis';
 
 export abstract class BaseOracleWorker {
   protected intervalMs: number;
@@ -12,7 +13,7 @@ export abstract class BaseOracleWorker {
   public start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log(`[${this.constructor.name}] Started worker with interval ${this.intervalMs}ms`);
+    console.log(`[${new Date().toISOString()}] [${this.constructor.name}] Started worker with interval ${this.intervalMs}ms`);
     this.timer = setInterval(() => this.poll(), this.intervalMs);
   }
 
@@ -22,13 +23,13 @@ export abstract class BaseOracleWorker {
       clearInterval(this.timer);
       this.timer = null;
     }
-    console.log(`[${this.constructor.name}] Stopped worker`);
+    console.log(`[${new Date().toISOString()}] [${this.constructor.name}] Stopped worker`);
   }
 
   protected abstract poll(): Promise<void>;
 
-  protected emitSignal(signal: OracleSignal) {
-    console.log(`[${this.constructor.name}] EMIT SIGNAL [${signal.id}]:`, JSON.stringify(signal));
-    // TODO: Redis Pub/Sub integration will go here
+  protected async emitSignal(signal: OracleSignal) {
+    console.log(`[${new Date().toISOString()}] [${this.constructor.name}] EMIT SIGNAL [${signal.id}]`);
+    await publishSignal(signal);
   }
 }
