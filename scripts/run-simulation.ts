@@ -37,8 +37,8 @@ async function runSimulation() {
   console.log('======================================================');
   
   const args = process.argv.slice(2);
-  const count = parseInt(args[0]) || 10;
-  const intervalMs = parseInt(args[1]) || 500;
+  const count = parseInt(args[0] || '10') || 10;
+  const intervalMs = parseInt(args[1] || '500') || 500;
   
   console.log(`[Config] Simulating ${count} signals with ${intervalMs}ms delay...`);
   
