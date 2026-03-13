@@ -1,18 +1,21 @@
 export type OracleSource = 'YOUTUBE' | 'FAA' | 'BOXOFFICE';
+export type OrderSide = 'BUY' | 'SELL';
+export type OrderOutcome = 'YES' | 'NO';
+export type OrderMode = 'PAPER' | 'LIVE' | 'DRY_RUN';
 
 export interface OracleSignal {
   id: string;
   source: OracleSource;
-  targetId: string; // e.g., YouTube Channel ID
+  targetId: string;
   triggerCondition: string;
   timestamp: number;
-  value: any; // The raw data that triggered this
+  value: any;
 }
 
 export interface StrategyConfig {
   id: string;
   oracleSource: OracleSource;
-  marketId: string; // Polymarket condition/market ID
+  marketId: string;
   maxPositionSizeUsdc: number;
   maxSlippageBps: number;
   triggerThreshold: number | string;
@@ -23,9 +26,6 @@ export interface ExecutionRequest {
   strategy: StrategyConfig;
   dryRun: boolean;
 }
-
-export type OrderSide = 'BUY' | 'SELL';
-export type OrderOutcome = 'YES' | 'NO';
 
 export interface ExecutionResult {
   success: boolean;
