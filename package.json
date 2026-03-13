@@ -1,0 +1,20 @@
+{
+  "name": "prediction-market-ai-agents",
+  "version": "1.0.0",
+  "description": "A high-performance, user-facing AI agent orchestration platform built to trade on prediction markets (Polymarket, Kalshi).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sigmabrogz/prediction-market-ai-agents.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Sigmabrogz/prediction-market-ai-agents/issues"
+  },
+  "homepage": "https://github.com/Sigmabrogz/prediction-market-ai-agents#readme"
+}
