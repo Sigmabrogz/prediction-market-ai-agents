@@ -1,4 +1,4 @@
-import { getRedisSubClient, REDIS_CHANNEL } from '../../core/src/redis';
+import { getRedisSubClient, getRedisCmdClient, REDIS_CHANNEL } from '../../core/src/redis';
 import { OracleSignal, StrategyConfig, ExecutionRequest } from '../../core/src/types';
 import { PolymarketAdapter } from './polymarket-adapter';
 import { ExecutionEngine } from './execution-engine';
@@ -8,35 +8,47 @@ dotenv.config();
 
 // Explicit fail-safes for LIVE mode
 const DRY_RUN = process.env.DRY_RUN !== 'false';
+const LIVE_CONFIRMATION = process.env.LIVE_CONFIRMATION === 'true';
 const MODE_STR = DRY_RUN ? 'DRY_RUN' : 'LIVE';
+
+// Priority 3: Hard Safety Rails
+const WHITELISTED_MARKET = process.env.WHITELISTED_MARKET || '16678291189211314787145083999015737376658799626183230671758641503291735614088';
+const WHITELISTED_WALLET = process.env.WHITELISTED_WALLET || '0x0000000000000000000000000000000000000000';
+const HARD_MAX_TRADE_SIZE = 5; // $5 USD max for first live tests
 
 console.log(`[${new Date().toISOString()}] [Executor] Starting in ${MODE_STR} mode.`);
 
 if (!DRY_RUN) {
+  if (!LIVE_CONFIRMATION) {
+    console.error(`[${new Date().toISOString()}] [Executor] FATAL: LIVE_CONFIRMATION=true is required to disable DRY_RUN. Aborting.`);
+    process.exit(1);
+  }
   if (!process.env.POLYMARKET_PRIVATE_KEY) {
     console.error(`[${new Date().toISOString()}] [Executor] FATAL: POLYMARKET_PRIVATE_KEY missing in LIVE mode. Aborting.`);
     process.exit(1);
   }
   console.warn(`[${new Date().toISOString()}] [Executor] WARNING: LIVE EXECUTION MODE ENABLED.`);
+  console.warn(`[${new Date().toISOString()}] [Executor] SECURITY: Hard Max Trade Size locked to $${HARD_MAX_TRADE_SIZE}`);
+  console.warn(`[${new Date().toISOString()}] [Executor] SECURITY: Whitelisted Market locked to ${WHITELISTED_MARKET}`);
 }
 
 const adapter = new PolymarketAdapter({
-  privateKey: process.env.POLYMARKET_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000000', // Dummy key for DRY_RUN
+  privateKey: process.env.POLYMARKET_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000000',
   chainId: parseInt(process.env.POLYMARKET_CHAIN_ID || '137', 10),
   host: process.env.POLYMARKET_HOST || 'https://clob.polymarket.com'
 });
 
 const engine = new ExecutionEngine(adapter);
 const sub = getRedisSubClient();
-const processedSignals = new Set<string>();
+const cmd = getRedisCmdClient();
 
 // Simulated database configuration mapping an Oracle Signal to a User Strategy
 const mockStrategy: StrategyConfig = {
   id: 'strat-youtube-100m',
   oracleSource: 'YOUTUBE',
-  marketId: '16678291189211314787145083999015737376658799626183230671758641503291735614088', // Example TokenID
-  maxPositionSizeUsdc: 10,
-  maxSlippageBps: 200, // 0.02c slippage allowance
+  marketId: WHITELISTED_MARKET,
+  maxPositionSizeUsdc: 2, // Only $2 for the test strategy
+  maxSlippageBps: 200, 
   triggerThreshold: 100000000
 };
 
@@ -54,15 +66,28 @@ sub.on('message', async (channel, message) => {
   try {
     const signal: OracleSignal = JSON.parse(message);
     
-    if (processedSignals.has(signal.id)) {
-      console.warn(`[${new Date().toISOString()}] [Executor] Duplicate signal received, ignoring: ${signal.id}`);
+    // Priority 1: Redis-based Deduplication Lock
+    const lockKey = `lock:execution:${signal.id}:${mockStrategy.id}`;
+    // SETNX: Set if Not eXists, EX: Expire in 600 seconds (10 mins)
+    const acquired = await cmd.set(lockKey, '1', 'EX', 600, 'NX');
+    
+    if (!acquired) {
+      console.log(`[${new Date().toISOString()}] [Executor] Redis lock ${lockKey} exists. Skipping duplicate execution for signal: ${signal.id}`);
       return;
     }
-    processedSignals.add(signal.id);
     
     console.log(`\n[${new Date().toISOString()}] [Executor] [${MODE_STR}] Received Signal [${signal.id}] from ${signal.source}`);
 
-    // Execute the mapped strategy
+    // Priority 3: Enforce hard safety limits
+    if (mockStrategy.marketId !== WHITELISTED_MARKET) {
+      console.error(`[${new Date().toISOString()}] [Executor] SECURITY BLOCK: Strategy marketId does not match WHITELISTED_MARKET.`);
+      return;
+    }
+    if (mockStrategy.maxPositionSizeUsdc > HARD_MAX_TRADE_SIZE) {
+      console.error(`[${new Date().toISOString()}] [Executor] SECURITY BLOCK: Strategy size (${mockStrategy.maxPositionSizeUsdc}) exceeds HARD_MAX_TRADE_SIZE (${HARD_MAX_TRADE_SIZE}).`);
+      return;
+    }
+
     const req: ExecutionRequest = {
       signal,
       strategy: mockStrategy,
