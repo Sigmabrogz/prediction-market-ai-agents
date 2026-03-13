@@ -3,52 +3,51 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
-enum OrderMode {
-  PAPER
-  LIVE
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  createdAt     DateTime       @default(now())
+  wallets       UserWallet[]
+  subscriptions Subscription[]
 }
 
-enum OrderSide {
-  BUY
-  SELL
+model UserWallet {
+  id         String @id @default(uuid())
+  userId     String
+  user       User   @relation(fields: [userId], references: [id])
+  address    String @unique
+  privateKey String 
+  balance    Float  @default(0)
 }
 
-enum StrategyType {
-  ORACLE_SNIPER
-  CROSS_MARKET_ARB
-  MANUAL
+model SniperPool {
+  id               String         @id @default(uuid())
+  marketId         String         @unique
+  title            String
+  resolutionSource String
+  status           String         @default("ACTIVE")
+  subscriptions    Subscription[]
 }
 
-enum OrderStatus {
-  SIGNAL_RECEIVED
-  VALIDATION_PASSED
-  VALIDATION_FAILED
-  ORDER_SUBMITTED
-  ORDER_OPEN
-  ORDER_PARTIALLY_FILLED
-  ORDER_FILLED
-  ORDER_CANCEL_REQUESTED
-  ORDER_CANCELLED
-  ORDER_FAILED
-  ORDER_EXPIRED
-}
-
-enum SystemEventSeverity {
-  INFO
-  WARN
-  ERROR
-  CRITICAL
+model Subscription {
+  id           String     @id @default(uuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id])
+  poolId       String
+  pool         SniperPool @relation(fields: [poolId], references: [id])
+  maxTradeSize Float
+  active       Boolean    @default(true)
 }
 
 model Strategy {
   id        String       @id @default(uuid())
   name      String
-  type      StrategyType
-  config    Json
+  type      String
+  config    String
   isActive  Boolean      @default(true)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
@@ -67,10 +66,10 @@ model Signal {
   marketId         String
   marketSlug       String?
   triggerType      String
-  triggerPayload   Json
+  triggerPayload   String
   emittedAt        DateTime
   receivedAt       DateTime  @default(now())
-  mode             OrderMode
+  mode             String
   createdAt        DateTime  @default(now())
 
   orders           Order[]
@@ -89,13 +88,13 @@ model Order {
   strategyId      String
   strategy        Strategy    @relation(fields: [strategyId], references: [id])
   marketId        String
-  mode            OrderMode
-  side            OrderSide
+  mode            String
+  side            String
   orderType       String      // e.g., "LIMIT", "MARKET"
   limitPrice      Float
   requestedSize   Float
   submittedSize   Float?
-  status          OrderStatus @default(SIGNAL_RECEIVED)
+  status          String      @default("SIGNAL_RECEIVED")
   submittedAt     DateTime?
   lastStatusAt    DateTime    @default(now())
   createdAt       DateTime    @default(now())
@@ -116,8 +115,8 @@ model OrderLifecycleEvent {
   id        String      @id @default(uuid())
   orderId   String
   order     Order       @relation(fields: [orderId], references: [id])
-  status    OrderStatus
-  payload   Json?
+  status    String
+  payload   String?
   timestamp DateTime    @default(now())
 
   @@index([orderId])
@@ -142,7 +141,7 @@ model Position {
   marketId      String
   strategyId    String
   strategy      Strategy  @relation(fields: [strategyId], references: [id])
-  mode          OrderMode
+  mode          String
   side          String    // e.g., "YES" or "NO"
   quantity      Float
   avgEntryPrice Float
@@ -162,7 +161,7 @@ model Position {
 model PnlSnapshot {
   id            String    @id @default(uuid())
   strategyId    String?
-  mode          OrderMode
+  mode          String
   realizedPnl   Float
   unrealizedPnl Float
   timestamp     DateTime  @default(now())
@@ -176,8 +175,8 @@ model SystemEvent {
   id        String              @id @default(uuid())
   component String
   eventType String
-  severity  SystemEventSeverity @default(INFO)
-  payload   Json?
+  severity  String              @default("INFO")
+  payload   String?
   timestamp DateTime            @default(now())
 
   @@index([component])
