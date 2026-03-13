@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { SSEProvider } from "@/components/dashboard/SSEProvider";
+import { DataProvider } from "@/components/dashboard/DataProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,10 +17,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.className} bg-[#030014] antialiased`}>
-        <SSEProvider>
+      <body className={`${inter.className} bg-[#030014] antialiased min-h-screen text-gray-100 font-mono selection:bg-purple-500/30`}>
+        <DataProvider>
           {children}
-        </SSEProvider>
+        </DataProvider>
       </body>
     </html>
   );
