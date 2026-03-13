@@ -1,8 +1,10 @@
 import { PolymarketAdapter } from './polymarket-adapter';
 import { OrderbookValidator } from './validator';
-import { ExecutionRequest, ExecutionResult, OrderSide } from '../../core/src/types';
+import { ExecutionRequest, ExecutionResult, OrderSide, OrderMode } from '../../core/src/types';
+import { LifecycleEventPublisher } from '../../core/src/event-publisher';
+import { LifecycleEventType } from '../../core/src/events';
 
-const ORDER_TIMEOUT_MS = 10000; // 10 seconds
+const ORDER_TIMEOUT_MS = 10000;
 
 export class ExecutionEngine {
   private adapter: PolymarketAdapter;
@@ -13,79 +15,110 @@ export class ExecutionEngine {
     this.validator = new OrderbookValidator();
   }
 
-  public async execute(req: ExecutionRequest, side: OrderSide): Promise<ExecutionResult> {
+  public async execute(req: ExecutionRequest, side: OrderSide, mode: OrderMode): Promise<ExecutionResult> {
     const startTime = Date.now();
     const { signal, strategy, dryRun } = req;
+    
+    const eventBase = {
+      mode,
+      signalId: signal.id,
+      strategyId: strategy.id,
+      marketId: strategy.marketId,
+      component: 'executor' as const
+    };
 
     try {
-      console.log(`[${new Date().toISOString()}] [ExecutionEngine] Processing ${side} for ${signal.id} on ${strategy.marketId}`);
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        eventType: LifecycleEventType.VALIDATION_STARTED,
+        payload: {}
+      });
 
       const orderbook = await this.adapter.getOrderbook(strategy.marketId);
       const validation = this.validator.validate(orderbook, strategy, side);
 
       if (!validation.passed) {
-        console.warn(`[${new Date().toISOString()}] [ExecutionEngine] Validation Failed: ${validation.reason}`);
-        return {
-          success: false,
-          error: `Validation failed: ${validation.reason}`,
-          executionTimeMs: Date.now() - startTime
-        };
+        await LifecycleEventPublisher.publish({
+          ...eventBase,
+          eventType: LifecycleEventType.VALIDATION_FAILED,
+          payload: { reason: validation.reason }
+        });
+        return { success: false, error: validation.reason, executionTimeMs: Date.now() - startTime };
       }
 
-      // Compute aggressive limit price
-      const topAsk = orderbook.asks[0].price;
-      const topBid = orderbook.bids[0].price;
-      const execPrice = side === 'BUY' ? topAsk : topBid;
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        eventType: LifecycleEventType.VALIDATION_PASSED,
+        payload: {}
+      });
+
+      const execPrice = side === 'BUY' ? orderbook.asks[0].price : orderbook.bids[0].price;
 
       if (dryRun) {
-        console.log(`[${new Date().toISOString()}] [ExecutionEngine] [DRY_RUN] Simulated ${side} ${strategy.maxPositionSizeUsdc} shares @ $${execPrice}`);
+        await LifecycleEventPublisher.publish({
+          ...eventBase,
+          eventType: LifecycleEventType.DRY_RUN_EXECUTED,
+          payload: { simulatedPrice: execPrice, simulatedSize: strategy.maxPositionSizeUsdc, side }
+        });
         return { success: true, executionTimeMs: Date.now() - startTime };
       }
 
-      // Priority 2: Live Execution and Timeout Handling
-      console.log(`[${new Date().toISOString()}] [ExecutionEngine] [LIVE] Placing ${side} order: ${strategy.maxPositionSizeUsdc} @ $${execPrice}`);
-      const order = await this.adapter.placeOrder(
-        strategy.marketId,
-        execPrice,
-        strategy.maxPositionSizeUsdc,
-        side
-      );
+      // LIVE PATH
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        eventType: LifecycleEventType.ORDER_SUBMISSION_STARTED,
+        payload: { limitPrice: execPrice, size: strategy.maxPositionSizeUsdc, side }
+      });
 
-      console.log(`[${new Date().toISOString()}] [ExecutionEngine] [LIVE] Order submitted successfully: ${order.orderID}`);
-      
-      // Start async cancellation loop
-      this.monitorAndCancelOrder(order.orderID);
+      const order = await this.adapter.placeOrder(strategy.marketId, execPrice, strategy.maxPositionSizeUsdc, side);
 
-      return {
-        success: true,
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        eventType: LifecycleEventType.ORDER_SUBMITTED,
         orderId: order.orderID,
-        executionTimeMs: Date.now() - startTime
-      };
+        payload: { limitPrice: execPrice, size: strategy.maxPositionSizeUsdc, side }
+      });
+
+      this.monitorAndCancelOrder(order.orderID, eventBase);
+
+      return { success: true, orderId: order.orderID, executionTimeMs: Date.now() - startTime };
 
     } catch (error) {
-      console.error(`[${new Date().toISOString()}] [ExecutionEngine] Execution crashed:`, error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        executionTimeMs: Date.now() - startTime
-      };
+      const errMessage = error instanceof Error ? error.message : String(error);
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        eventType: LifecycleEventType.ORDER_FAILED,
+        payload: { reason: errMessage }
+      });
+      return { success: false, error: errMessage, executionTimeMs: Date.now() - startTime };
     }
   }
 
-  private async monitorAndCancelOrder(orderId: string) {
-    console.log(`[${new Date().toISOString()}] [ExecutionEngine] Monitoring order ${orderId} for ${ORDER_TIMEOUT_MS}ms...`);
-    
+  private async monitorAndCancelOrder(orderId: string, eventBase: any) {
     await new Promise(resolve => setTimeout(resolve, ORDER_TIMEOUT_MS));
-    
     try {
-      // Future: Poll actual order status to check if filled.
-      // For MVP safety: we blindly send a cancel request after timeout. 
-      // If it filled, the cancel drops safely. If it hung, it's neutralized.
-      console.log(`[${new Date().toISOString()}] [ExecutionEngine] Timeout reached. Attempting to cancel order ${orderId}...`);
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        orderId,
+        eventType: LifecycleEventType.ORDER_CANCEL_REQUESTED,
+        payload: { reason: 'Timeout reached' }
+      });
+
       await this.adapter.cancelOrder(orderId);
-      console.log(`[${new Date().toISOString()}] [ExecutionEngine] Order ${orderId} cancellation requested.`);
+
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        orderId,
+        eventType: LifecycleEventType.ORDER_CANCELLED,
+        payload: { reason: 'Timeout reached' }
+      });
     } catch (error) {
-      console.error(`[${new Date().toISOString()}] [ExecutionEngine] Failed to cancel order ${orderId}:`, error instanceof Error ? error.message : String(error));
+      await LifecycleEventPublisher.publish({
+        ...eventBase,
+        orderId,
+        eventType: LifecycleEventType.ORDER_FAILED,
+        payload: { reason: `Cancel failed: ${error instanceof Error ? error.message : String(error)}` }
+      });
     }
   }
 }
