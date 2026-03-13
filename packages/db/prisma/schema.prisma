@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderMode {
+  PAPER
+  LIVE
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum StrategyType {
+  ORACLE_SNIPER
+  CROSS_MARKET_ARB
+  MANUAL
+}
+
+enum OrderStatus {
+  SIGNAL_RECEIVED
+  VALIDATION_PASSED
+  VALIDATION_FAILED
+  ORDER_SUBMITTED
+  ORDER_OPEN
+  ORDER_PARTIALLY_FILLED
+  ORDER_FILLED
+  ORDER_CANCEL_REQUESTED
+  ORDER_CANCELLED
+  ORDER_FAILED
+  ORDER_EXPIRED
+}
+
+enum SystemEventSeverity {
+  INFO
+  WARN
+  ERROR
+  CRITICAL
+}
+
+model Strategy {
+  id        String       @id @default(uuid())
+  name      String
+  type      StrategyType
+  config    Json
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  signals   Signal[]
+  orders    Order[]
+  positions Position[]
+}
+
+model Signal {
+  id               String    @id
+  signalId         String
+  strategyId       String
+  strategy         Strategy  @relation(fields: [strategyId], references: [id])
+  oracleSource     String
+  marketId         String
+  marketSlug       String?
+  triggerType      String
+  triggerPayload   Json
+  emittedAt        DateTime
+  receivedAt       DateTime  @default(now())
+  mode             OrderMode
+  createdAt        DateTime  @default(now())
+
+  orders           Order[]
+
+  @@index([signalId])
+  @@index([strategyId])
+  @@index([marketId])
+  @@index([createdAt])
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  externalOrderId String?     @unique
+  signalId        String?
+  signal          Signal?     @relation(fields: [signalId], references: [id])
+  strategyId      String
+  strategy        Strategy    @relation(fields: [strategyId], references: [id])
+  marketId        String
+  mode            OrderMode
+  side            OrderSide
+  orderType       String      // e.g., "LIMIT", "MARKET"
+  limitPrice      Float
+  requestedSize   Float
+  submittedSize   Float?
+  status          OrderStatus @default(SIGNAL_RECEIVED)
+  submittedAt     DateTime?
+  lastStatusAt    DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  fills           Fill[]
+  lifecycle       OrderLifecycleEvent[]
+
+  @@index([signalId])
+  @@index([strategyId])
+  @@index([marketId])
+  @@index([status])
+  @@index([mode])
+  @@index([createdAt])
+}
+
+model OrderLifecycleEvent {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id])
+  status    OrderStatus
+  payload   Json?
+  timestamp DateTime    @default(now())
+
+  @@index([orderId])
+  @@index([timestamp])
+}
+
+model Fill {
+  id            String    @id @default(uuid())
+  orderId       String
+  order         Order     @relation(fields: [orderId], references: [id])
+  fillPrice     Float
+  fillSize      Float
+  fee           Float?
+  liquidityType String?   // "MAKER" | "TAKER"
+  filledAt      DateTime  @default(now())
+
+  @@index([orderId])
+}
+
+model Position {
+  id            String    @id @default(uuid())
+  marketId      String
+  strategyId    String
+  strategy      Strategy  @relation(fields: [strategyId], references: [id])
+  mode          OrderMode
+  side          String    // e.g., "YES" or "NO"
+  quantity      Float
+  avgEntryPrice Float
+  realizedPnl   Float     @default(0.0)
+  unrealizedPnl Float?
+  status        String    // "OPEN" | "CLOSED" | "RESOLVED"
+  openedAt      DateTime  @default(now())
+  closedAt      DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@index([marketId])
+  @@index([strategyId])
+  @@index([mode])
+  @@index([status])
+}
+
+model PnlSnapshot {
+  id            String    @id @default(uuid())
+  strategyId    String?
+  mode          OrderMode
+  realizedPnl   Float
+  unrealizedPnl Float
+  timestamp     DateTime  @default(now())
+
+  @@index([strategyId])
+  @@index([mode])
+  @@index([timestamp])
+}
+
+model SystemEvent {
+  id        String              @id @default(uuid())
+  component String
+  eventType String
+  severity  SystemEventSeverity @default(INFO)
+  payload   Json?
+  timestamp DateTime            @default(now())
+
+  @@index([component])
+  @@index([severity])
+  @@index([timestamp])
+}
